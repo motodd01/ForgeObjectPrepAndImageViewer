@@ -1,0 +1,150 @@
+﻿<head>
+    <!-- Based of example at: https://forge.autodesk.com/en/docs/viewer/v5/tutorials/basic-application/ -->
+    <!-- Also: https://github.com/Autodesk-Forge/bucket.manager-csharp-sample.tool -->
+    <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1, user-scalable=no"/>
+    <meta charset="utf-8">
+
+    <link rel="stylesheet" href="https://developer.api.autodesk.com/modelderivative/v2/viewers/style.min.css" type="text/css">
+
+    <style>
+        body { margin: 0; }
+
+        #ViewerDiv {
+            height: 100%;
+            margin: 0;
+            width: 100%;
+        }
+    </style>
+
+    <style>
+        #HighlightSurfacesButton {
+            cursor: pointer;
+            font-size: 40px;
+            left: 5px;
+            position: absolute;
+            top: 5px;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ViewerDiv"></div>
+<button id="HighlightSurfacesButton" onclick="highlightSurfaces()">Random Highlight</button>
+
+<script src="https://developer.api.autodesk.com/modelderivative/v2/viewers/viewer3D.min.js"></script>
+<script>
+    // getParameterByName from https://stackoverflow.com/a/901144
+    function getParameterByName(name, url) {
+        if (!url) url = window.location.href;
+        name = name.replace(/[\[\]]/g, "\\$&");
+        var regex = new RegExp("[?&]" + name + "(=([^&#]*)|&|#|$)"),
+            results = regex.exec(url);
+        if (!results) return null;
+        if (!results[2]) return '';
+        return decodeURIComponent(results[2].replace(/\+/g, " "));
+    }
+
+    var urn = getParameterByName('URN');
+    var token = getParameterByName('Token');
+
+    if (urn != null && token != null) {
+        showModel(urn, token);
+    }
+
+    var viewerApp;
+    var currentViewer;
+
+    function showModel(urn, token) {
+        var options = {
+            env: 'AutodeskProduction',
+            accessToken: token
+
+        };
+        var documentId = 'urn:' + urn;
+        Autodesk.Viewing.Initializer(options,
+            function onInitialized() {
+                viewerApp = new Autodesk.Viewing.ViewingApplication('ViewerDiv');
+                viewerApp.registerViewer(viewerApp.k3D, Autodesk.Viewing.Private.GuiViewer3D);
+                viewerApp.loadDocument(documentId, onDocumentLoadSuccess, onDocumentLoadFailure);
+            });
+    }
+
+    function onDocumentLoadSuccess(doc) {
+        var viewables = viewerApp.bubble.search({ 'type': 'geometry' });
+        if (viewables.length === 0) {
+            alert('File not translated or not viewable');
+            return;
+        }
+
+        viewerApp.selectItem(viewables[0].data, onItemLoadSuccess, onItemLoadFail);
+    }
+
+    function onDocumentLoadFailure(viewerErrorCode) {
+        alert('File not translated or not viewable');
+        console.error('onDocumentLoadFailure() - errorCode:' + viewerErrorCode);
+    }
+
+    function onItemLoadSuccess(viewer, item) {
+        console.log('onItemLoadSuccess()!');
+        console.log(viewer);
+        console.log(item);
+
+        // Congratulations! The viewer is now ready to be used.
+        console.log('Viewers are equal: ' + (viewer === viewerApp.getCurrentViewer()));
+        currentViewer = viewer;
+    }
+
+    function onItemLoadFail(errorCode) {
+        console.error('onItemLoadFail() - errorCode:' + errorCode);
+    }
+
+    var overlayName = "temperary-colored-overlay";
+
+    function highlightSurfaces() {
+        var allDbIds = getAllDbIds(currentViewer);
+
+        var blueColor = 0x0000ff;
+        var material = new THREE.MeshPhongMaterial({
+            color: blueColor,
+            opacity: .5
+        });
+        currentViewer.impl.createOverlayScene(overlayName, material, material);
+
+        // highlight one or more surfaces - just using random
+        var numberOfObjects = getRandomInt(1, allDbIds.length);
+        for (var i = 0; i < numberOfObjects; i++) {
+            var randomIndex = getRandomInt(0, allDbIds.length - 1);
+            var randId = allDbIds[randomIndex];
+
+            // code from: https://forge.autodesk.com/cloud_and_mobile/2015/12/change-color-of-elements-with-view-and-data-api.html
+            var instanceTree = currentViewer.model.getData().instanceTree;
+            instanceTree.enumNodeFragments(randId,
+                function(fragId) {
+                    var renderProxy = currentViewer.impl.getRenderProxy(currentViewer.model, fragId);
+
+                    renderProxy.meshProxy = new THREE.Mesh(renderProxy.geometry, renderProxy.material);
+
+                    renderProxy.meshProxy.matrix.copy(renderProxy.matrixWorld);
+                    renderProxy.meshProxy.matrixWorldNeedsUpdate = true;
+                    renderProxy.meshProxy.matrixAutoUpdate = false;
+                    renderProxy.meshProxy.frustumCulled = false;
+
+                    currentViewer.impl.addOverlay(overlayName, renderProxy.meshProxy);
+                    currentViewer.impl.invalidate(true);
+                },
+                false);
+        }
+    }
+
+    function getRandomInt(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function getAllDbIds(viewer) {
+        var instanceTree = viewer.model.getData().instanceTree;
+        var allDbIdsStr = Object.keys(instanceTree.nodeAccess.dbIdToIndex);
+        return allDbIdsStr.map(function(id) { return parseInt(id) });
+    }
+</script>
+</body>
